@@ -17,8 +17,8 @@
  */
 import { Subscription } from 'rxjs';
 
-import { NgClass } from '@angular/common';
-import { AfterViewInit, ChangeDetectionStrategy, ChangeDetectorRef, Component, ElementRef, HostBinding, inject, Input, OnDestroy, ViewChild } from '@angular/core';
+import { NgClass, NgTemplateOutlet } from '@angular/common';
+import { AfterContentInit, AfterViewInit, ChangeDetectionStrategy, ChangeDetectorRef, Component, ContentChild, ElementRef, HostBinding, inject, Input, OnDestroy, OutputRefSubscription, Signal, signal, ViewChild } from '@angular/core';
 import { MatSort, MatSortHeader } from '@angular/material/sort';
 import { MatCell, MatCellDef, MatColumnDef, MatFooterCell, MatFooterCellDef, MatFooterRow, MatFooterRowDef, MatHeaderCell, MatHeaderCellDef, MatHeaderRow, MatHeaderRowDef, MatRow, MatRowDef, MatTable } from '@angular/material/table';
 
@@ -39,6 +39,7 @@ import { XcTemplateComponent } from '../xc-template/xc-template.component';
 import { XcTooltipDirective } from '../xc-tooltip/xc-tooltip.directive';
 import { xcTableTranslations_deDE } from './locale/xc-translations.de-DE';
 import { xcTableTranslations_enUS } from './locale/xc-translations.en-US';
+import { XcTableDetailDirective } from './xc-table-detail.directive';
 import { XcTableColumn, XcTableDataSource } from './xc-table-data-source';
 
 
@@ -47,9 +48,9 @@ import { XcTableColumn, XcTableDataSource } from './xc-table-data-source';
     templateUrl: './xc-table.component.html',
     styleUrls: ['./xc-table.component.scss'],
     changeDetection: ChangeDetectionStrategy.OnPush,
-    imports: [MatTable, MatSort, MatColumnDef, MatHeaderCellDef, MatHeaderCell, XcProgressBarComponent, MatFooterCellDef, MatFooterCell, XcIconButtonComponent, MatSortHeader, XcTemplateComponent, MatCellDef, MatCell, NgClass, XcVarDirective, XcTooltipDirective, MatHeaderRowDef, MatHeaderRow, MatFooterRowDef, MatFooterRow, MatRowDef, MatRow]
+    imports: [MatTable, MatSort, MatColumnDef, MatHeaderCellDef, MatHeaderCell, XcProgressBarComponent, MatFooterCellDef, MatFooterCell, XcIconButtonComponent, MatSortHeader, XcTemplateComponent, MatCellDef, MatCell, NgClass, NgTemplateOutlet, XcVarDirective, XcTooltipDirective, MatHeaderRowDef, MatHeaderRow, MatFooterRowDef, MatFooterRow, MatRowDef, MatRow]
 })
-export class XcTableComponent implements AfterViewInit, OnDestroy {
+export class XcTableComponent implements AfterContentInit, AfterViewInit, OnDestroy {
     private readonly cdRef = inject(ChangeDetectorRef);
     private readonly elementRef = inject(ElementRef<HTMLElement>);
     private readonly _a11y = inject(A11yService);
@@ -64,15 +65,23 @@ export class XcTableComponent implements AfterViewInit, OnDestroy {
     private _cellSelect = false;
     private _lazyUpdate = false;
     private _visibleActions = false;
+    private _leadingActions = false;
     private _dataSource: XcTableDataSource<any>;
     private _dataSourceSubscriptions = new Array<Subscription>();
     private _matSort: MatSort;
+
+    /** Internal expand state when parent does not bind xc-table-detailexpanded */
+    private readonly internallyExpandedKeys = new Set<string>();
+
+    /** Opt-in under-row detail template. When absent, table behaviour is unchanged. */
+    @ContentChild(XcTableDetailDirective)
+    detailDirective: XcTableDetailDirective;
 
     private readonly filterTemplates = new Map<string, {
         template: XcFormTemplate<any, any>;
         component?: XcFormBaseComponent
     }>();
-    private readonly filterTemplateSubscriptions: Subscription[] = [];
+    private readonly filterTemplateSubscriptions: OutputRefSubscription[] = [];
 
     private tbody: HTMLTableSectionElement;
     private thead: HTMLTableSectionElement;
@@ -168,6 +177,14 @@ export class XcTableComponent implements AfterViewInit, OnDestroy {
 
         _i18n.setTranslations(LocaleService.EN_US, xcTableTranslations_enUS);
         _i18n.setTranslations(LocaleService.DE_DE, xcTableTranslations_deDE);
+    }
+
+
+    ngAfterContentInit() {
+        // Detail template ContentChild is available here — refresh view if under-row detail is opted in
+        if (this.hasDetailTemplate) {
+            this.cdRef.markForCheck();
+        }
     }
 
 
@@ -299,6 +316,7 @@ export class XcTableComponent implements AfterViewInit, OnDestroy {
     set dataSource(value: XcTableDataSource<any>) {
         this.unsubscribeDataSource();
         this.filterTemplates.clear();
+        this.internallyExpandedKeys.clear();
         this._dataSource = value;
         if (this.dataSource) {
             // subscribe to sort changes
@@ -327,7 +345,7 @@ export class XcTableComponent implements AfterViewInit, OnDestroy {
     }
 
 
-    @Input({alias: 'xc-table-allowsort', transform: coerceBoolean})
+    @Input({ alias: 'xc-table-allowsort', transform: coerceBoolean })
     set allowSort(value: boolean) {
         this._allowSort = value;
     }
@@ -338,7 +356,7 @@ export class XcTableComponent implements AfterViewInit, OnDestroy {
     }
 
 
-    @Input({alias: 'xc-table-allowfilter', transform: coerceBoolean})
+    @Input({ alias: 'xc-table-allowfilter', transform: coerceBoolean })
     set allowFilter(value: boolean) {
         this._allowFilter = value;
     }
@@ -349,7 +367,7 @@ export class XcTableComponent implements AfterViewInit, OnDestroy {
     }
 
 
-    @Input({alias: 'xc-table-allowactivate', transform: coerceBoolean})
+    @Input({ alias: 'xc-table-allowactivate', transform: coerceBoolean })
     set allowActivate(value: boolean) {
         this._allowActivate = value;
     }
@@ -361,7 +379,7 @@ export class XcTableComponent implements AfterViewInit, OnDestroy {
 
 
     @HostBinding('class.allowselect')
-    @Input({alias: 'xc-table-allowselect', transform: coerceBoolean})
+    @Input({ alias: 'xc-table-allowselect', transform: coerceBoolean })
     set allowSelect(value: boolean) {
         this._allowSelect = value;
     }
@@ -372,7 +390,7 @@ export class XcTableComponent implements AfterViewInit, OnDestroy {
     }
 
 
-    @Input({alias: 'xc-table-multiselect', transform: coerceBoolean})
+    @Input({ alias: 'xc-table-multiselect', transform: coerceBoolean })
     set multiSelect(value: boolean) {
         this._multiSelect = value;
     }
@@ -384,7 +402,7 @@ export class XcTableComponent implements AfterViewInit, OnDestroy {
 
 
     @HostBinding('class.cellselect')
-    @Input({alias: 'xc-table-cellselect', transform: coerceBoolean})
+    @Input({ alias: 'xc-table-cellselect', transform: coerceBoolean })
     set cellSelect(value: boolean) {
         this._cellSelect = value;
     }
@@ -395,7 +413,7 @@ export class XcTableComponent implements AfterViewInit, OnDestroy {
     }
 
 
-    @Input({alias: 'xc-table-lazyupdate', transform: coerceBoolean})
+    @Input({ alias: 'xc-table-lazyupdate', transform: coerceBoolean })
     set lazyUpdate(value: boolean) {
         this._lazyUpdate = value;
     }
@@ -406,7 +424,7 @@ export class XcTableComponent implements AfterViewInit, OnDestroy {
     }
 
 
-    @Input({alias: 'xc-table-visibleactions', transform: coerceBoolean})
+    @Input({ alias: 'xc-table-visibleactions', transform: coerceBoolean })
     set visibleActions(value: boolean) {
         this._visibleActions = value;
     }
@@ -417,6 +435,88 @@ export class XcTableComponent implements AfterViewInit, OnDestroy {
     }
 
 
+    /** Render row actions in a leading Actions column (default: false). */
+    @Input({alias: 'xc-table-leading-actions', transform: coerceBoolean})
+    set leadingActions(value: boolean) {
+        this._leadingActions = value;
+    }
+
+
+    get leadingActions(): boolean {
+        return this._leadingActions;
+    }
+
+
+    /**
+     * Optional predicate controlling which rows show their under-row detail.
+     * When omitted and a detail template is present, xc-table manages expand state internally.
+     */
+    @Input('xc-table-detailexpanded')
+    detailExpanded: (row: any) => boolean;
+
+
+    /**
+     * Optional id for the detail <tr> (e.g. for scroll-into-view after expand).
+     */
+    @Input('xc-table-detailrowid')
+    detailRowId: (row: any) => string;
+
+
+    get hasDetailTemplate(): boolean {
+        return !!this.detailDirective?.templateRef;
+    }
+
+
+    isDetailExpanded(row: any): boolean {
+        if (!this.hasDetailTemplate) {
+            return false;
+        }
+        if (this.detailExpanded) {
+            return this.detailExpanded(row);
+        }
+        return this.internallyExpandedKeys.has(this.getDetailExpandKey(row));
+    }
+
+
+    /**
+     * Toggle under-row detail for a row. Prefer binding xc-table-detailexpanded for external control;
+     * this updates internal state when that input is not set.
+     */
+    toggleDetail(row: any) {
+        if (!this.hasDetailTemplate) {
+            return;
+        }
+        if (this.detailExpanded) {
+            // Parent owns expand state — callers should update it (e.g. via actionElements)
+            this.cdRef.markForCheck();
+            return;
+        }
+        const key = this.getDetailExpandKey(row);
+        if (this.internallyExpandedKeys.has(key)) {
+            this.internallyExpandedKeys.delete(key);
+        } else {
+            this.internallyExpandedKeys.add(key);
+        }
+        this.cdRef.markForCheck();
+    }
+
+
+    getDetailRowId(row: any): string | null {
+        if (!this.detailRowId) {
+            return null;
+        }
+        return this.detailRowId(row) || null;
+    }
+
+
+    private getDetailExpandKey(row: any): string {
+        if (row && typeof row.uniqueKey === 'string' && row.uniqueKey) {
+            return row.uniqueKey;
+        }
+        return String(this.getRowIndex(row));
+    }
+
+
     @HostBinding('class.refreshing')
     get refreshing(): boolean {
         return this.dataSource && this.dataSource.refreshing;
@@ -424,9 +524,13 @@ export class XcTableComponent implements AfterViewInit, OnDestroy {
 
 
     get columns(): XcTableColumn[] {
-        return this.dataSource
-            ? this.dataSource.columns
-            : [];
+        if (!this.dataSource) {
+            return [];
+        }
+        if (!this.leadingActions) {
+            return this.dataSource.columns;
+        }
+        return [this.getLeadingActionColumn(), ...this.dataSource.columns];
     }
 
 
@@ -441,7 +545,23 @@ export class XcTableComponent implements AfterViewInit, OnDestroy {
 
 
     get columnNames(): string[] {
-        return this.columns.map(column => column.name);
+        return this.columns.map(column => this.resolveDynamicString(column.name));
+    }
+
+
+    private get actionColumnPath(): string {
+        return '__leading_actions__';
+    }
+
+
+    getLeadingActionColumn(): XcTableColumn {
+        return <XcTableColumn>{
+            path: this.actionColumnPath,
+            name: signal('xcTable.actionsColumnHeader'),
+            disableSort: true,
+            disableFilter: true,
+            shrink: true
+        };
     }
 
 
@@ -456,7 +576,7 @@ export class XcTableComponent implements AfterViewInit, OnDestroy {
 
 
     getAriaSortForColumn(column: XcTableColumn): string {
-        if(this.dataSource.getSortPath() ===  column.path) {
+        if (this.dataSource.getSortPath() === column.path) {
             const sortDirection = this.dataSource.getSortDirection();
             return XcSortDirectionToLabel(sortDirection);
         }
@@ -465,10 +585,24 @@ export class XcTableComponent implements AfterViewInit, OnDestroy {
 
 
     getColumnFilterAriaLabel(name: string): string {
-        return this.i18n.translate('Input field for filtering of $0', {
+        return this.i18n.translateInstant('Input field for filtering of $0', {
             key: '$0',
-            value: this.i18n.translate(name || 'this column')
+            value: this.i18n.translateInstant(name || 'this column')
         });
+    }
+
+    getColumnLabel(column: XcTableColumn): string {
+        if (this.leadingActions && column.path === this.actionColumnPath) {
+            return this._i18n.translateSignal('xcTable.actionsColumnHeader')();
+        }
+        const name = this.resolveDynamicString(column.name) || '';
+        return this.translateLabels ? this.i18n.translateSignal(name)() : name;
+    }
+
+    protected resolveDynamicString(value?: Signal<string> | string): string {
+        return typeof value === 'function'
+            ? value()
+            : value ?? '';
     }
 
 
@@ -485,7 +619,7 @@ export class XcTableComponent implements AfterViewInit, OnDestroy {
             let filter = this.filterTemplates.get(path);
             // create new template
             if (!filter) {
-                filter = {template: undefined};
+                filter = { template: undefined };
                 const filterEnum = this.dataSource.filterEnums.get(path);
                 if (filterEnum) {
                     // autocomplete template
@@ -520,7 +654,7 @@ export class XcTableComponent implements AfterViewInit, OnDestroy {
                 }
                 filter.template.disabled = column.disableFilter;
                 filter.template.compact = true;
-                filter.template.tooltip = column.filterTooltip;
+                filter.template.tooltip = this.resolveDynamicString(column.filterTooltip);
                 filter.template.callback = component => {
                     filter.component = component;
                     // set value and option of component because the datawrapper resets unknown options when autocomplete is used as input
@@ -545,9 +679,19 @@ export class XcTableComponent implements AfterViewInit, OnDestroy {
 
 
     getCellData(row: any, path: string): XcTemplate[] | any {
+        if (this.leadingActions && path === this.actionColumnPath) {
+            return '';
+        }
         return this.dataSource
             ? this.dataSource.resolve(row, path)
             : undefined;
+    }
+
+
+    resolveCellValue(value: XcTemplate[] | any): any {
+        return typeof value === 'function'
+            ? value()
+            : value;
     }
 
 
@@ -696,7 +840,7 @@ export class XcTableComponent implements AfterViewInit, OnDestroy {
             // TODO - if a column.path resolves to XcTemplate it returns the template instead of a primitive
             // Possible Solution: If it resolves to XcTemplate, then it could call toString()
             // it's up to the developer that toString() returns a string with the essential information
-            const colTexts = this.columns.map<string>(column => this.i18n.translate(column.name) + ' : ' + row.resolve(column.path));
+            const colTexts = this.columns.map<string>(column => this.getColumnLabel(column) + ' : ' + this.resolveCellValue(row.resolve(column.path)));
             this._a11y.screenreaderSpeak(colTexts.join(', '), ScreenreaderPriority.Assertive);
         }
     }
@@ -821,7 +965,7 @@ export class XcTableComponent implements AfterViewInit, OnDestroy {
         const requestErrorMessage = this.dataSource?.requestErrorMessage;
 
         if (requestErrorMessage) {
-            return this.i18n.translate(requestErrorMessage);
+            return this.i18n.translateSignal(requestErrorMessage)();
         }
 
         let dataError = 'data';
@@ -837,6 +981,6 @@ export class XcTableComponent implements AfterViewInit, OnDestroy {
         const requestState = this.dataSource && this.dataSource.limit === 0 ? 'requested' : 'available';
         const key = `no ${dataError} ${requestState}!`;
 
-        return this.i18n.translate(key);
+        return this.i18n.translateSignal(key)();
     }
 }

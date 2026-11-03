@@ -15,16 +15,26 @@
  * limitations under the License.
  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
  */
-// Attributes
-export const ATTRIBUTE_LABEL = '_label';
-export const ATTRIBUTE_ARIALABEL = '_ariaLabel';
-export const ATTRIBUTE_ICONNAME = '_iconName';
-export const ATTRIBUTE_PLACEHOLDER = '_placeholder';
-export const ATTRIBUTE_ICONTOOLTIP = '_iconTooltip';
-export const ATTRIBUTE_TOOLTIP = '_tooltip';
-export const ATTRIBUTE_VALUE = '_value';
+import { Directive, TemplateRef } from '@angular/core';
 
-export interface KeyTranslationPair {
-    key: string,
-    translated: string
+
+/**
+ * Marks an ng-template as the expandable detail content for xc-table rows.
+ *
+ * Usage (opt-in; existing xc-table usages unchanged when omitted):
+ * ```html
+ * <xc-table [xc-table-datasource]="ds">
+ *   <ng-template xc-table-detail let-row>
+ *     ...detail for row...
+ *   </ng-template>
+ * </xc-table>
+ * ```
+ */
+@Directive({
+    selector: '[xc-table-detail]',
+    standalone: true
+})
+export class XcTableDetailDirective {
+    constructor(readonly templateRef: TemplateRef<{ $implicit: unknown }>) {
+    }
 }
